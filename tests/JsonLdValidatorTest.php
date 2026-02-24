@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Nadar\Tests\Schema;
 
-use Nadar\Schema\DefinitionVersion;
+use Nadar\Schema\Vocabulary;
 use Nadar\Schema\JsonLdValidator;
 use PHPUnit\Framework\TestCase;
 
@@ -468,12 +468,12 @@ final class JsonLdValidatorTest extends TestCase
         self::assertTrue($result);
     }
 
-    public function testDefinitionVersionFilePaths(): void
+    public function testVocabularyFilePaths(): void
     {
-        foreach (DefinitionVersion::cases() as $version) {
+        foreach (Vocabulary::cases() as $vocab) {
             self::assertFileExists(
-                $version->filePath(),
-                "Bundled definition file for {$version->name} is missing."
+                $vocab->filePath(),
+                "Bundled vocabulary file for {$vocab->name} is missing."
             );
         }
     }

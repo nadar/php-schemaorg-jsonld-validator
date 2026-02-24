@@ -8,7 +8,7 @@ namespace Nadar\Schema;
  * Represents a bundled schema.org vocabulary version.
  *
  * Each case corresponds to a JSON-LD vocabulary file shipped inside the
- * `src/definitions/` directory of this package. Pass the desired version to
+ * `src/vocabulary/` directory of this package. Pass the desired version to
  * {@see JsonLdValidator::__construct()} to select which vocabulary is used for
  * validation.
  *
@@ -19,11 +19,11 @@ namespace Nadar\Schema;
  *
  * // Pin to a specific bundled version:
  * $validator = new \Nadar\Schema\JsonLdValidator(
- *     version: DefinitionVersion::V20260226,
+ *     vocabulary: Vocabulary::V20260226,
  * );
  * ```
  */
-enum DefinitionVersion: string
+enum Vocabulary: string
 {
     /** schema.org vocabulary v29.4 (bundled 2026-02-26). */
     case V20260226 = '2026-02-26';
@@ -33,6 +33,6 @@ enum DefinitionVersion: string
      */
     public function filePath(): string
     {
-        return dirname(__DIR__) . '/definitions/' . $this->value . '.jsonld';
+        return dirname(__DIR__) . '/vocabulary/' . $this->value . '.jsonld';
     }
 }

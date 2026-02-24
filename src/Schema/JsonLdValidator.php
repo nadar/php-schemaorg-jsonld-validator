@@ -32,16 +32,34 @@ use Throwable;
  * ```
  *
  * The schema.org vocabulary is read from a bundled JSON-LD file that ships with
- * this package. Use {@see DefinitionVersion} to select a specific bundled
- * version if needed.
+ * this package. Use {@see Vocabulary} to select a specific bundled version if
+ * needed.
  */
 final class JsonLdValidator
 {
-    /** Bundled vocabulary version to validate against. */
-    private readonly DefinitionVersion $version;
+    /**
+     * The bundled schema.org vocabulary used for validation.
+     *
+     * Readable after construction so callers can inspect which vocabulary
+     * version the validator was created with.
+     */
+    public readonly Vocabulary $vocabulary;
 
     /**
-     * When `true`, nodes without a `@type` key generate a validation error.
+     * When `true`, every JSON-LD node that is missing a `@type` key is treated
+     * as a validation error.
+     *
+     * **Default (`false`)** — nodes without `@type` are silently accepted.
+     * Properties on such nodes are still checked against the full list of known
+     * schema.org properties, but no domain check is performed (because there is
+     * no type to check against). This is the permissive default that matches
+     * how most JSON-LD processors behave: `@type` is optional.
+     *
+     * **Strict (`true`)** — every node must declare a `@type`. Enable this
+     * when you want to guarantee that every entity in your document is
+     * explicitly typed, which is a requirement for many SEO and rich-snippet
+     * use cases. A missing `@type` produces an error message of the form:
+     * `"$: Missing @type."`.
      */
     private readonly bool $strictRequireType;
 
@@ -79,15 +97,16 @@ final class JsonLdValidator
     private array $ancestorsCache = [];
 
     /**
-     * @param DefinitionVersion $version          Bundled vocabulary version to use for validation.
-     *                                            Defaults to the latest bundled version.
-     * @param bool              $strictRequireType When `true`, nodes missing `@type` are flagged.
+     * @param Vocabulary $vocabulary      Bundled schema.org vocabulary version to use for
+     *                                    validation. Defaults to the latest bundled version.
+     * @param bool       $strictRequireType When `true`, nodes missing `@type` are flagged as
+     *                                    errors. See the property docblock for full details.
      */
     public function __construct(
-        DefinitionVersion $version = DefinitionVersion::V20260226,
+        Vocabulary $vocabulary = Vocabulary::V20260226,
         bool $strictRequireType = false,
     ) {
-        $this->version = $version;
+        $this->vocabulary = $vocabulary;
         $this->strictRequireType = $strictRequireType;
     }
 
@@ -227,7 +246,7 @@ final class JsonLdValidator
      */
     private function readVocabRaw(): string
     {
-        $path = $this->version->filePath();
+        $path = $this->vocabulary->filePath();
         $raw = @file_get_contents($path);
 
         if (!is_string($raw) || $raw === '') {
