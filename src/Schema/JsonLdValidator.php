@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Nadar;
+namespace Nadar\Schema;
 
 use RuntimeException;
 use Throwable;
@@ -22,7 +22,7 @@ use Throwable;
  *
  * Usage:
  * ```php
- * $validator = new \Nadar\SchemaOrgValidator();
+ * $validator = new \Nadar\Schema\JsonLdValidator();
  * $valid = $validator->validate($myJsonLdArray);
  *
  * if (!$valid) {
@@ -35,7 +35,7 @@ use Throwable;
  * file and then stored in a local cache file to avoid repeated network requests.
  * Call {@see refreshVocabularyCache()} to force a fresh download.
  */
-final class SchemaOrgValidator
+final class JsonLdValidator
 {
     /** URL of the official schema.org full-vocabulary JSON-LD release. */
     private readonly string $vocabUrl;

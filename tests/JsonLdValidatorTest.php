@@ -2,21 +2,21 @@
 
 declare(strict_types=1);
 
-namespace Nadar\Tests;
+namespace Nadar\Tests\Schema;
 
-use Nadar\SchemaOrgValidator;
+use Nadar\Schema\JsonLdValidator;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
 /**
- * Unit tests for {@see SchemaOrgValidator}.
+ * Unit tests for {@see JsonLdValidator}.
  *
  * Integration tests that require a real schema.org vocabulary download are
  * grouped in the "integration" test group and are skipped unless explicitly
  * enabled (via environment variable SCHEMAORG_INTEGRATION_TESTS=1).
  */
-final class SchemaOrgValidatorTest extends TestCase
+final class JsonLdValidatorTest extends TestCase
 {
     // -------------------------------------------------------------------------
     // Helpers
@@ -141,10 +141,10 @@ final class SchemaOrgValidatorTest extends TestCase
      * Creates a validator pre-loaded with the stub vocabulary.
      * No network access is required.
      */
-    private function makeValidator(bool $strictRequireType = false): SchemaOrgValidator
+    private function makeValidator(bool $strictRequireType = false): JsonLdValidator
     {
         $this->writeStubVocab();
-        return new SchemaOrgValidator(
+        return new JsonLdValidator(
             cacheFile: $this->stubCachePath(),
             strictRequireType: $strictRequireType,
         );
@@ -156,7 +156,7 @@ final class SchemaOrgValidatorTest extends TestCase
 
     public function testInitialStateHasNoErrors(): void
     {
-        $validator = new SchemaOrgValidator(cacheFile: $this->stubCachePath());
+        $validator = new JsonLdValidator(cacheFile: $this->stubCachePath());
         self::assertFalse($validator->hasErrors());
         self::assertSame([], $validator->getErrors());
         self::assertSame('', $validator->getErrorsAsString());
@@ -606,7 +606,7 @@ final class SchemaOrgValidatorTest extends TestCase
     {
         // Point at a non-existent cache and a file:// URL that does not exist so
         // the download helper fails immediately (no network timeout).
-        $validator = new SchemaOrgValidator(
+        $validator = new JsonLdValidator(
             cacheFile: '/tmp/nonexistent-cache-file-' . uniqid() . '.jsonld',
             vocabUrl: 'file:///tmp/nonexistent-vocab-' . uniqid() . '.jsonld',
         );
@@ -632,7 +632,7 @@ final class SchemaOrgValidatorTest extends TestCase
         $cacheFile = sys_get_temp_dir() . '/schemaorg-integration-test.jsonld.cache';
         @unlink($cacheFile);
 
-        $validator = new SchemaOrgValidator(cacheFile: $cacheFile);
+        $validator = new JsonLdValidator(cacheFile: $cacheFile);
 
         $result = $validator->validate([
             '@context' => 'https://schema.org',

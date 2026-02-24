@@ -12,12 +12,12 @@
     },
     "autoload": {
         "psr-4": {
-            "Nadar\\": "src/"
+            "Nadar\\Schema\\": "src/Schema/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Nadar\\Tests\\": "tests/"
+            "Nadar\\Tests\\Schema\\": "tests/"
         }
     },
     "config": {
