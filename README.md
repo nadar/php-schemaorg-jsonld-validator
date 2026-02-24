@@ -10,7 +10,7 @@ The validator inspects a JSON-LD document (as a PHP array or raw JSON string) an
 2. **Wrong-domain properties** — properties used on a `@type` they do not belong to (the full `rdfs:subClassOf` type-inheritance hierarchy is respected, so subtype properties are always valid on parent types too).
 3. **Unknown `@type` values** — type names that do not exist in the schema.org vocabulary.
 
-The schema.org vocabulary is downloaded once from the official JSON-LD release file and cached locally, so subsequent validations are instant and require no network access.
+The schema.org vocabulary ships **bundled** with this package as versioned JSON-LD definition files — no network access or caching required.
 
 ## Requirements
 
@@ -59,13 +59,12 @@ $validator->validate('{"@context":"https://schema.org","@type":"Course","name":"
 
 ## API
 
-### `new JsonLdValidator(?string $cacheFile = null, ?string $vocabUrl = null, bool $strictRequireType = false)`
+### `new JsonLdValidator(DefinitionVersion $version = DefinitionVersion::V20260226, bool $strictRequireType = false)`
 
-| Parameter           | Default                                              | Description |
-|---------------------|------------------------------------------------------|-------------|
-| `$cacheFile`        | `sys_get_temp_dir() . '/schemaorg-current-https.jsonld.cache'` | Path where the downloaded vocabulary is stored. |
-| `$vocabUrl`         | Latest official schema.org JSON-LD release URL       | Override to use a specific schema.org version or a local file. |
-| `$strictRequireType`| `false`                                              | When `true`, nodes without a `@type` are reported as errors. |
+| Parameter            | Default                        | Description |
+|----------------------|--------------------------------|-------------|
+| `$version`           | `DefinitionVersion::V20260226` | Bundled schema.org vocabulary version to use. |
+| `$strictRequireType` | `false`                        | When `true`, nodes without a `@type` are reported as errors. |
 
 ### `validate(string|array $jsonLd): bool`
 
@@ -83,19 +82,28 @@ Returns all validation error messages as an array of strings.
 
 Returns all validation error messages joined into a single string.
 
-### `refreshVocabularyCache(): void`
+## Bundled vocabulary versions
 
-Forces a fresh download of the schema.org vocabulary and replaces the local cache. Useful for scheduled updates or deployments.
+The vocabulary is bundled inside `src/definitions/` as dated JSON-LD files and exposed via the `DefinitionVersion` enum. Each case maps to one bundled file:
 
-## Vocabulary caching
+| Enum case                    | File                          | schema.org version |
+|------------------------------|-------------------------------|---------------------|
+| `DefinitionVersion::V20260226` | `src/definitions/2026-02-26.jsonld` | v29.4 |
 
-On the first call to `validate()`, the library downloads the schema.org JSON-LD vocabulary from `https://schema.org/version/latest/schemaorg-current-https.jsonld` and writes it to a local cache file using an atomic rename. Subsequent calls read from the cache and parse the vocabulary into memory, keeping it there for the lifetime of the `JsonLdValidator` instance.
+To pin to a specific version explicitly:
 
-To keep the vocabulary up-to-date (schema.org releases updates periodically), call `refreshVocabularyCache()` in a scheduled task or as part of your deployment pipeline.
+```php
+use Nadar\Schema\DefinitionVersion;
+use Nadar\Schema\JsonLdValidator;
+
+$validator = new JsonLdValidator(version: DefinitionVersion::V20260226);
+```
+
+When a new schema.org release is bundled in a future version of this package, a new `DefinitionVersion` case will be added with an updated date. You can then choose when to adopt it by updating the `$version` argument.
 
 ## Example — detecting errors
 
-The following JSON-LD uses several fictional `Dummy*` types that do not exist in schema.org:
+The following JSON-LD uses a fictional `DummyOrganization` type that does not exist in schema.org:
 
 ```json
 {
@@ -125,12 +133,6 @@ print_r($validator->getErrors());
 ```bash
 composer install
 vendor/bin/phpunit --testdox
-```
-
-To run the integration test that performs a real vocabulary download, set the environment variable:
-
-```bash
-SCHEMAORG_INTEGRATION_TESTS=1 vendor/bin/phpunit --testdox
 ```
 
 ## License

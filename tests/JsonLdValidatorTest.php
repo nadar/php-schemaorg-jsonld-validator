@@ -4,17 +4,16 @@ declare(strict_types=1);
 
 namespace Nadar\Tests\Schema;
 
+use Nadar\Schema\DefinitionVersion;
 use Nadar\Schema\JsonLdValidator;
-use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
-use RuntimeException;
 
 /**
  * Unit tests for {@see JsonLdValidator}.
  *
- * Integration tests that require a real schema.org vocabulary download are
- * grouped in the "integration" test group and are skipped unless explicitly
- * enabled (via environment variable SCHEMAORG_INTEGRATION_TESTS=1).
+ * All tests use the bundled schema.org vocabulary (no network required).
+ * One integration test verifies the bundled vocabulary loads and validates
+ * a real Course fixture end-to-end.
  */
 final class JsonLdValidatorTest extends TestCase
 {
@@ -23,131 +22,11 @@ final class JsonLdValidatorTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * Returns the path to a stub vocabulary cache file used in unit tests.
-     * The stub contains a minimal schema.org-like JSON-LD document with only
-     * the types and properties needed by the test fixtures.
-     */
-    private function stubCachePath(): string
-    {
-        return sys_get_temp_dir() . '/schemaorg-stub-test.jsonld.cache';
-    }
-
-    /**
-     * Writes a minimal schema.org vocabulary stub so tests run without network.
-     *
-     * Covered types:   Thing, CreativeWork, Course, Organization, Audience,
-     *                  CourseInstance, AlignmentObject, PropertyValue
-     * Covered properties (selection): name, description, url, image, provider,
-     *                  courseCode, coursePrerequisites, occupationalCredentialAwarded,
-     *                  numberOfCredits, startDate, endDate, maximumEnrollment,
-     *                  minimumEnrollment, audience, hasCourseInstance, about,
-     *                  learningResourceType, educationalAlignment, educationalCredentialAwarded,
-     *                  courseOutline, skills, additionalProperty, educationalUse,
-     *                  address, educationalRole, location, courseMode,
-     *                  maximumAttendeeCapacity, minimumAttendeeCapacity,
-     *                  enrollmentStatus, waitingListSize,
-     *                  educationalFramework, targetName, targetDescription,
-     *                  value
-     */
-    private function writeStubVocab(): void
-    {
-        $types = [
-            ['@id' => 'schema:Thing',            'rdfs:subClassOf' => []],
-            ['@id' => 'schema:CreativeWork',     'rdfs:subClassOf' => [['@id' => 'schema:Thing']]],
-            ['@id' => 'schema:Course',           'rdfs:subClassOf' => [['@id' => 'schema:CreativeWork']]],
-            ['@id' => 'schema:Organization',     'rdfs:subClassOf' => [['@id' => 'schema:Thing']]],
-            ['@id' => 'schema:Audience',         'rdfs:subClassOf' => [['@id' => 'schema:Thing']]],
-            ['@id' => 'schema:CourseInstance',   'rdfs:subClassOf' => [['@id' => 'schema:CreativeWork']]],
-            ['@id' => 'schema:AlignmentObject',  'rdfs:subClassOf' => [['@id' => 'schema:Thing']]],
-            ['@id' => 'schema:PropertyValue',    'rdfs:subClassOf' => [['@id' => 'schema:Thing']]],
-            ['@id' => 'schema:Event',            'rdfs:subClassOf' => [['@id' => 'schema:Thing']]],
-        ];
-
-        // Each entry: [property, [domainTypes...]]
-        $properties = [
-            // Thing
-            ['name',                          ['Thing']],
-            ['description',                   ['Thing']],
-            ['url',                           ['Thing']],
-            ['image',                         ['Thing']],
-            ['additionalProperty',            ['Thing']],
-            // CreativeWork
-            ['about',                         ['CreativeWork']],
-            ['provider',                      ['CreativeWork']],
-            ['learningResourceType',          ['CreativeWork']],
-            ['educationalAlignment',          ['CreativeWork']],
-            ['educationalCredentialAwarded',  ['CreativeWork']],
-            ['educationalUse',                ['CreativeWork']],
-            // Course
-            ['courseCode',                    ['Course']],
-            ['coursePrerequisites',           ['Course']],
-            ['occupationalCredentialAwarded', ['Course']],
-            ['numberOfCredits',               ['Course']],
-            ['hasCourseInstance',             ['Course']],
-            ['courseOutline',                 ['Course']],
-            ['skills',                        ['Course']],
-            // CourseInstance
-            ['courseMode',                    ['CourseInstance']],
-            ['maximumAttendeeCapacity',       ['CourseInstance', 'Event']],
-            ['minimumAttendeeCapacity',       ['CourseInstance', 'Event']],
-            ['enrollmentStatus',              ['CourseInstance']],
-            ['waitingListSize',               ['CourseInstance']],
-            ['location',                      ['Event', 'CourseInstance']],
-            // Course + CourseInstance share these via Event
-            ['startDate',                     ['Event', 'CreativeWork']],
-            ['endDate',                       ['Event', 'CreativeWork']],
-            ['maximumEnrollment',             ['Course']],
-            ['minimumEnrollment',             ['Course']],
-            ['audience',                      ['CreativeWork']],
-            // Organization
-            ['address',                       ['Organization']],
-            // Audience
-            ['educationalRole',               ['Audience']],
-            // AlignmentObject
-            ['educationalFramework',          ['AlignmentObject']],
-            ['targetName',                    ['AlignmentObject']],
-            ['targetDescription',             ['AlignmentObject']],
-            // PropertyValue
-            ['value',                         ['PropertyValue']],
-        ];
-
-        $graph = [];
-
-        foreach ($types as $t) {
-            $entry = ['@id' => $t['@id'], '@type' => 'rdfs:Class'];
-            if (!empty($t['rdfs:subClassOf'])) {
-                $entry['rdfs:subClassOf'] = $t['rdfs:subClassOf'];
-            }
-            $graph[] = $entry;
-        }
-
-        foreach ($properties as [$prop, $domains]) {
-            $domainList = array_map(
-                static fn(string $d) => ['@id' => 'schema:' . $d],
-                $domains
-            );
-            $graph[] = [
-                '@id'                   => 'schema:' . $prop,
-                '@type'                 => 'rdf:Property',
-                'schema:domainIncludes' => count($domainList) === 1 ? $domainList[0] : $domainList,
-            ];
-        }
-
-        $vocab = json_encode(['@graph' => $graph], JSON_THROW_ON_ERROR);
-        file_put_contents($this->stubCachePath(), $vocab);
-    }
-
-    /**
-     * Creates a validator pre-loaded with the stub vocabulary.
-     * No network access is required.
+     * Creates a validator backed by the bundled vocabulary.
      */
     private function makeValidator(bool $strictRequireType = false): JsonLdValidator
     {
-        $this->writeStubVocab();
-        return new JsonLdValidator(
-            cacheFile: $this->stubCachePath(),
-            strictRequireType: $strictRequireType,
-        );
+        return new JsonLdValidator(strictRequireType: $strictRequireType);
     }
 
     // -------------------------------------------------------------------------
@@ -156,7 +35,7 @@ final class JsonLdValidatorTest extends TestCase
 
     public function testInitialStateHasNoErrors(): void
     {
-        $validator = new JsonLdValidator(cacheFile: $this->stubCachePath());
+        $validator = new JsonLdValidator();
         self::assertFalse($validator->hasErrors());
         self::assertSame([], $validator->getErrors());
         self::assertSame('', $validator->getErrorsAsString());
@@ -526,58 +405,45 @@ final class JsonLdValidatorTest extends TestCase
         $validator = $this->makeValidator();
 
         $jsonLd = [
-            '@context'                     => 'https://schema.org',
-            '@type'                        => 'Course',
-            'name'                         => 'Introduction to PHP',
-            'description'                  => 'A beginner PHP course.',
-            'url'                          => 'https://example.com/php',
-            'image'                        => 'https://example.com/php.jpg',
-            'courseCode'                   => 'PHP-101',
-            'coursePrerequisites'          => 'None',
+            '@context'                      => 'https://schema.org',
+            '@type'                         => 'Course',
+            'name'                          => 'Introduction to PHP',
+            'description'                   => 'A beginner PHP course.',
+            'url'                           => 'https://example.com/php',
+            'image'                         => 'https://example.com/php.jpg',
+            'courseCode'                    => 'PHP-101',
+            'coursePrerequisites'           => 'None',
             'occupationalCredentialAwarded' => 'Certificate',
-            'numberOfCredits'              => 3,
-            'startDate'                    => '2024-01-01',
-            'endDate'                      => '2024-06-01',
-            'maximumEnrollment'            => 30,
-            'minimumEnrollment'            => 5,
-            'about'                        => ['PHP', 'Web Development'],
-            'learningResourceType'         => 'Course',
-            'educationalCredentialAwarded' => 'Certificate of Completion',
-            'educationalUse'               => ['Professional Development'],
-            'provider'                     => [
+            'numberOfCredits'               => 3,
+            'about'                         => ['PHP', 'Web Development'],
+            'learningResourceType'          => 'Course',
+            'educationalCredentialAwarded'  => 'Certificate of Completion',
+            'educationalUse'                => ['Professional Development'],
+            'provider'                      => [
                 '@type'   => 'Organization',
                 'name'    => 'PHP Academy',
                 'address' => '1 PHP Street',
             ],
-            'audience'                     => [
-                '@type'           => 'Audience',
+            'audience'                      => [
+                '@type' => 'EducationalAudience',
                 'educationalRole' => 'student',
             ],
-            'hasCourseInstance'            => [
+            'hasCourseInstance'             => [
                 [
                     '@type'                   => 'CourseInstance',
+                    'name'                    => 'Online session',
                     'location'                => 'Online',
                     'courseMode'              => 'online',
+                    'startDate'               => '2024-01-01',
+                    'endDate'                 => '2024-06-01',
                     'maximumAttendeeCapacity' => 100,
-                    'minimumAttendeeCapacity' => 1,
-                    'enrollmentStatus'        => 'https://schema.org/LimitedAvailability',
-                    'waitingListSize'         => 10,
                 ],
             ],
-            'educationalAlignment'         => [
+            'educationalAlignment'          => [
                 '@type'              => 'AlignmentObject',
                 'educationalFramework' => 'CEFR',
                 'targetName'         => 'B2',
                 'targetDescription'  => 'Upper intermediate',
-            ],
-            'courseOutline'                => ['Module 1', 'Module 2'],
-            'skills'                       => ['PHP basics'],
-            'additionalProperty'           => [
-                [
-                    '@type' => 'PropertyValue',
-                    'name'  => 'difficulty',
-                    'value' => 'beginner',
-                ],
             ],
         ];
 
@@ -587,7 +453,7 @@ final class JsonLdValidatorTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
-    // Vocabulary cache
+    // Vocabulary loading
     // -------------------------------------------------------------------------
 
     public function testVocabularyIsReusedAcrossCalls(): void
@@ -597,49 +463,18 @@ final class JsonLdValidatorTest extends TestCase
         // First call loads the vocabulary.
         $validator->validate(['@context' => 'https://schema.org', '@type' => 'Course', 'name' => 'A']);
 
-        // Second call must not throw even though writeStubVocab is not called again.
+        // Second call reuses the in-memory vocabulary without re-reading from disk.
         $result = $validator->validate(['@context' => 'https://schema.org', '@type' => 'Course', 'name' => 'B']);
         self::assertTrue($result);
     }
 
-    public function testMissingCacheFileTriggersException(): void
+    public function testDefinitionVersionFilePaths(): void
     {
-        // Point at a non-existent cache and a file:// URL that does not exist so
-        // the download helper fails immediately (no network timeout).
-        $validator = new JsonLdValidator(
-            cacheFile: '/tmp/nonexistent-cache-file-' . uniqid() . '.jsonld',
-            vocabUrl: 'file:///tmp/nonexistent-vocab-' . uniqid() . '.jsonld',
-        );
-
-        $this->expectException(RuntimeException::class);
-        $validator->validate(['@type' => 'Course']);
-    }
-
-    // -------------------------------------------------------------------------
-    // Integration tests (skipped unless SCHEMAORG_INTEGRATION_TESTS=1)
-    // -------------------------------------------------------------------------
-
-    /**
-     * @group integration
-     */
-    #[Group('integration')]
-    public function testRealSchemaOrgVocabularyDownload(): void
-    {
-        if (getenv('SCHEMAORG_INTEGRATION_TESTS') !== '1') {
-            self::markTestSkipped('Set SCHEMAORG_INTEGRATION_TESTS=1 to run integration tests.');
+        foreach (DefinitionVersion::cases() as $version) {
+            self::assertFileExists(
+                $version->filePath(),
+                "Bundled definition file for {$version->name} is missing."
+            );
         }
-
-        $cacheFile = sys_get_temp_dir() . '/schemaorg-integration-test.jsonld.cache';
-        @unlink($cacheFile);
-
-        $validator = new JsonLdValidator(cacheFile: $cacheFile);
-
-        $result = $validator->validate([
-            '@context' => 'https://schema.org',
-            '@type'    => 'Course',
-            'name'     => 'Real vocabulary test',
-        ]);
-
-        self::assertTrue($result, implode("\n", $validator->getErrors()));
     }
 }

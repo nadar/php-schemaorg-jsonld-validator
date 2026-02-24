@@ -31,17 +31,14 @@ use Throwable;
  * }
  * ```
  *
- * The schema.org vocabulary is downloaded once from the official JSON-LD release
- * file and then stored in a local cache file to avoid repeated network requests.
- * Call {@see refreshVocabularyCache()} to force a fresh download.
+ * The schema.org vocabulary is read from a bundled JSON-LD file that ships with
+ * this package. Use {@see DefinitionVersion} to select a specific bundled
+ * version if needed.
  */
 final class JsonLdValidator
 {
-    /** URL of the official schema.org full-vocabulary JSON-LD release. */
-    private readonly string $vocabUrl;
-
-    /** Path to the local vocabulary cache file. */
-    private readonly string $cacheFile;
+    /** Bundled vocabulary version to validate against. */
+    private readonly DefinitionVersion $version;
 
     /**
      * When `true`, nodes without a `@type` key generate a validation error.
@@ -82,19 +79,15 @@ final class JsonLdValidator
     private array $ancestorsCache = [];
 
     /**
-     * @param string|null $cacheFile        Local path where the vocabulary is cached.
-     *                                      Defaults to the system temp directory.
-     * @param string|null $vocabUrl         URL of the schema.org JSON-LD vocabulary file.
-     *                                      Defaults to the official latest release.
-     * @param bool        $strictRequireType When `true`, nodes missing `@type` are flagged.
+     * @param DefinitionVersion $version          Bundled vocabulary version to use for validation.
+     *                                            Defaults to the latest bundled version.
+     * @param bool              $strictRequireType When `true`, nodes missing `@type` are flagged.
      */
     public function __construct(
-        ?string $cacheFile = null,
-        ?string $vocabUrl = null,
+        DefinitionVersion $version = DefinitionVersion::V20260226,
         bool $strictRequireType = false,
     ) {
-        $this->cacheFile = $cacheFile ?? sys_get_temp_dir() . '/schemaorg-current-https.jsonld.cache';
-        $this->vocabUrl = $vocabUrl ?? 'https://schema.org/version/latest/schemaorg-current-https.jsonld';
+        $this->version = $version;
         $this->strictRequireType = $strictRequireType;
     }
 
@@ -151,19 +144,6 @@ final class JsonLdValidator
     public function getErrorsAsString(string $separator = "\n"): string
     {
         return implode($separator, $this->errors);
-    }
-
-    /**
-     * Forces a fresh download of the schema.org vocabulary and replaces the cache.
-     *
-     * The in-memory vocabulary is also cleared so the next {@see validate()} call
-     * re-parses from the updated file.
-     */
-    public function refreshVocabularyCache(): void
-    {
-        $raw = $this->download($this->vocabUrl);
-        $this->writeFileAtomic($this->cacheFile, $raw);
-        $this->resetVocabulary();
     }
 
     // -------------------------------------------------------------------------
@@ -241,61 +221,22 @@ final class JsonLdValidator
     }
 
     /**
-     * Returns the raw vocabulary JSON, reading from cache or downloading as needed.
+     * Returns the raw vocabulary JSON from the bundled definition file.
      *
-     * @throws RuntimeException On download or file-system errors.
+     * @throws RuntimeException When the vocabulary file cannot be read.
      */
     private function readVocabRaw(): string
     {
-        if (is_file($this->cacheFile)) {
-            $raw = file_get_contents($this->cacheFile);
-            if (is_string($raw) && $raw !== '') {
-                return $raw;
-            }
-        }
+        $path = $this->version->filePath();
+        $raw = @file_get_contents($path);
 
-        $raw = $this->download($this->vocabUrl);
-        $this->writeFileAtomic($this->cacheFile, $raw);
-
-        return $raw;
-    }
-
-    /**
-     * Downloads content from the given URL.
-     *
-     * @throws RuntimeException When the download fails or returns an empty body.
-     */
-    private function download(string $url): string
-    {
-        $raw = @file_get_contents($url);
         if (!is_string($raw) || $raw === '') {
             throw new RuntimeException(
-                'Failed to download schema.org vocabulary from: ' . $url
+                'Could not read bundled schema.org vocabulary file: ' . $path
             );
         }
+
         return $raw;
-    }
-
-    /**
-     * Writes `$contents` to `$path` using an atomic rename to prevent partial writes.
-     *
-     * @throws RuntimeException On file-system errors.
-     */
-    private function writeFileAtomic(string $path, string $contents): void
-    {
-        $tmp = $path . '.' . bin2hex(random_bytes(6)) . '.tmp';
-
-        if (@file_put_contents($tmp, $contents) === false) {
-            @unlink($tmp);
-            throw new RuntimeException('Failed to write cache file: ' . $path);
-        }
-
-        @chmod($tmp, 0644);
-
-        if (!@rename($tmp, $path)) {
-            @unlink($tmp);
-            throw new RuntimeException('Failed to move cache file into place: ' . $path);
-        }
     }
 
     /**
@@ -524,16 +465,4 @@ final class JsonLdValidator
         return $arr !== [] && array_keys($arr) !== range(0, count($arr) - 1);
     }
 
-    /**
-     * Clears all in-memory vocabulary data so the next call re-parses from disk.
-     */
-    private function resetVocabulary(): void
-    {
-        $this->loaded = false;
-        $this->knownTypes = [];
-        $this->typeParents = [];
-        $this->knownProperties = [];
-        $this->propertyDomains = [];
-        $this->ancestorsCache = [];
-    }
 }
