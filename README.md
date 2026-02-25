@@ -4,6 +4,9 @@
 
 A PHP 8.4+ library that validates JSON-LD structured data against the official [schema.org](https://schema.org) vocabulary — mirroring what [validator.schema.org](https://validator.schema.org/) checks for.
 
+![Schema Org JSON-LD Validator](schemaorgvalidator.png "Schema Org JSON-LD Validator")
+
+
 ## What it does
 
 The validator inspects a JSON-LD document (as a PHP array or raw JSON string) and reports:
