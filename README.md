@@ -73,34 +73,6 @@ $resultB = $validator->validate($documentB);
 // $resultA and $resultB are completely independent.
 ```
 
-## API
-
-### `new JsonLdValidator(Vocabulary $vocabulary = Vocabulary::V20260226)`
-
-| Parameter            | Default                    | Description |
-|----------------------|----------------------------|-----------|
-| `$vocabulary`        | `Vocabulary::V20260226`    | Bundled schema.org vocabulary version to use. |
-
-### `validate(string|array $jsonLd, bool $strictRequireType = false): ValidationResult`
-
-Validates the JSON-LD input and returns an immutable `ValidationResult`. Each call produces a fresh result object, so multiple documents can be validated independently without shared state.
-
-| Parameter            | Default | Description |
-|----------------------|---------|-----------|
-| `$jsonLd`            | —       | Decoded JSON-LD array or raw JSON string. |
-| `$strictRequireType` | `false` | When `true`, nodes without a `@type` are reported as errors. See [Strict type checking](#strict-type-checking) for details. |
-
-### `ValidationResult`
-
-| Method | Return type | Description |
-|--------|-------------|-------------|
-| `isValid()` | `bool` | `true` when no violations were found. |
-| `hasErrors()` | `bool` | `true` when at least one violation was found. |
-| `getErrors()` | `list<string>` | All validation error messages. |
-| `getErrorsAsString(string $separator = "\n")` | `string` | All error messages joined into a single string. |
-| `getJsonLd()` | `array\|null` | The decoded JSON-LD data that was validated. Returns `null` when the input could not be decoded. Useful when the original input was a raw JSON string and you need the parsed PHP array. |
-| `__toString()` | `string` | Returns `"Valid."` or the errors joined by newlines. |
-
 ## Strict type checking
 
 The `$strictRequireType` parameter of `validate()` controls how the validator handles JSON-LD nodes that are missing a `@type` key.
@@ -176,41 +148,3 @@ $validator = new JsonLdValidator(vocabulary: Vocabulary::V20260226);
 ```
 
 When a new schema.org release is bundled in a future version of this package, a new `Vocabulary` case will be added with an updated date. You can then choose when to adopt it by updating the `$vocabulary` argument.
-
-## Example — detecting errors
-
-The following JSON-LD uses a fictional `DummyOrganization` type that does not exist in schema.org:
-
-```json
-{
-  "@context": "https://schema.org",
-  "@type": "Course",
-  "name": "Dummy course",
-  "provider": {
-    "@type": "DummyOrganization",
-    "name": "Dummy provider"
-  }
-}
-```
-
-```php
-$validator = new \Nadar\Schema\JsonLdValidator();
-$result = $validator->validate($jsonString);
-
-print_r($result->getErrors());
-// Array
-// (
-//     [0] => $.provider: Unknown schema.org @type 'DummyOrganization'.
-// )
-```
-
-## Running the tests
-
-```bash
-composer install
-vendor/bin/phpunit --testdox
-```
-
-## License
-
-MIT
