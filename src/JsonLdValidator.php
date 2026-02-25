@@ -20,14 +20,18 @@ use Throwable;
  *
  * Unknown `@type` values are also reported as errors.
  *
+ * Each call to {@see validate()} returns an immutable {@see ValidationResult}
+ * object, so multiple documents can be validated independently without any
+ * shared mutable state.
+ *
  * Usage:
  * ```php
  * $validator = new \Nadar\Schema\JsonLdValidator();
- * $valid = $validator->validate($myJsonLdArray);
+ * $result = $validator->validate($myJsonLdArray);
  *
- * if (!$valid) {
- *     print_r($validator->getErrors());
- *     echo $validator->getErrorsAsString();
+ * if (!$result->isValid()) {
+ *     print_r($result->getErrors());
+ *     echo $result->getErrorsAsString();
  * }
  * ```
  *
@@ -114,55 +118,26 @@ final class JsonLdValidator
      * Validates JSON-LD input against the schema.org vocabulary.
      *
      * Accepts either a decoded PHP array or a raw JSON string.
-     * After calling this method, use {@see getErrors()} or {@see getErrorsAsString()}
-     * to inspect any violations found.
+     * Returns an immutable {@see ValidationResult} that holds all errors (if
+     * any). Each call produces a fresh result object, so multiple documents
+     * can be validated independently.
      *
      * @param string|array<mixed> $jsonLd Decoded JSON-LD array or raw JSON string.
-     *
-     * @return bool `true` when no violations were found, `false` otherwise.
      */
-    public function validate(string|array $jsonLd): bool
+    public function validate(string|array $jsonLd): ValidationResult
     {
         $this->errors = [];
 
         $data = is_string($jsonLd) ? $this->decodeJson($jsonLd) : $jsonLd;
         if (!is_array($data)) {
             $this->errors[] = 'Root must be a JSON object.';
-            return false;
+            return new ValidationResult(null, $this->errors);
         }
 
         $this->ensureVocabularyLoaded();
         $this->validateNode($data, '$');
 
-        return $this->errors === [];
-    }
-
-    /**
-     * Returns `true` when the most recent {@see validate()} call produced errors.
-     */
-    public function hasErrors(): bool
-    {
-        return $this->errors !== [];
-    }
-
-    /**
-     * Returns all validation errors collected during the last {@see validate()} call.
-     *
-     * @return list<string>
-     */
-    public function getErrors(): array
-    {
-        return $this->errors;
-    }
-
-    /**
-     * Returns all validation errors as a single string, joined by `$separator`.
-     *
-     * @param string $separator Placed between consecutive error messages. Defaults to `"\n"`.
-     */
-    public function getErrorsAsString(string $separator = "\n"): string
-    {
-        return implode($separator, $this->errors);
+        return new ValidationResult($data, $this->errors);
     }
 
     // -------------------------------------------------------------------------

@@ -39,24 +39,35 @@ $jsonLd = [
     'url'      => 'https://example.com/php-course',
 ];
 
-if ($validator->validate($jsonLd)) {
+$result = $validator->validate($jsonLd);
+
+if ($result->isValid()) {
     echo 'Valid!';
 } else {
     // Get errors as an array
-    print_r($validator->getErrors());
+    print_r($result->getErrors());
 
     // …or as a single string (default separator: newline)
-    echo $validator->getErrorsAsString();
+    echo $result->getErrorsAsString();
 
     // Custom separator
-    echo $validator->getErrorsAsString(' | ');
+    echo $result->getErrorsAsString(' | ');
 }
 ```
 
 You can also pass a raw JSON string instead of a decoded array:
 
 ```php
-$validator->validate('{"@context":"https://schema.org","@type":"Course","name":"PHP 101"}');
+$result = $validator->validate('{"@context":"https://schema.org","@type":"Course","name":"PHP 101"}');
+```
+
+Because each `validate()` call returns an independent `ValidationResult` object, you can validate multiple documents without any shared mutable state:
+
+```php
+$resultA = $validator->validate($documentA);
+$resultB = $validator->validate($documentB);
+
+// $resultA and $resultB are completely independent.
 ```
 
 ## API
@@ -68,21 +79,20 @@ $validator->validate('{"@context":"https://schema.org","@type":"Course","name":"
 | `$vocabulary`        | `Vocabulary::V20260226`    | Bundled schema.org vocabulary version to use. |
 | `$strictRequireType` | `false`                    | When `true`, nodes without a `@type` are reported as errors. See [Strict type checking](#strict-type-checking) for details. |
 
-### `validate(string|array $jsonLd): bool`
+### `validate(string|array $jsonLd): ValidationResult`
 
-Validates the JSON-LD input. Returns `true` when no violations are found. All violations from the previous call are cleared at the start of each new call.
+Validates the JSON-LD input and returns an immutable `ValidationResult`. Each call produces a fresh result object, so multiple documents can be validated independently without shared state.
 
-### `hasErrors(): bool`
+### `ValidationResult`
 
-Returns `true` when the last `validate()` call found errors.
-
-### `getErrors(): list<string>`
-
-Returns all validation error messages as an array of strings.
-
-### `getErrorsAsString(string $separator = "\n"): string`
-
-Returns all validation error messages joined into a single string.
+| Method | Return type | Description |
+|--------|-------------|-------------|
+| `isValid()` | `bool` | `true` when no violations were found. |
+| `hasErrors()` | `bool` | `true` when at least one violation was found. |
+| `getErrors()` | `list<string>` | All validation error messages. |
+| `getErrorsAsString(string $separator = "\n")` | `string` | All error messages joined into a single string. |
+| `getJsonLd()` | `array\|null` | The decoded JSON-LD data that was validated. Returns `null` when the input could not be decoded. Useful when the original input was a raw JSON string and you need the parsed PHP array. |
+| `__toString()` | `string` | Returns `"Valid."` or the errors joined by newlines. |
 
 ## Strict type checking
 
@@ -95,7 +105,7 @@ By default, nodes without `@type` are **silently accepted**. Properties on such 
 ```php
 $validator = new \Nadar\Schema\JsonLdValidator(); // strictRequireType defaults to false
 
-$validator->validate([
+$result = $validator->validate([
     '@context' => 'https://schema.org',
     'name'     => 'No type declared',     // ✔ allowed — 'name' is a known property
     'fakeKey'  => 'value',                // ✗ reported — 'fakeKey' is not a schema.org property
@@ -123,8 +133,8 @@ $result = $validator->validate([
     'name'     => 'Missing @type here',
 ]);
 
-// $result === false
-// $validator->getErrors() === ['$: Missing @type.']
+// $result->isValid() === false
+// $result->getErrors() === ['$: Missing @type.']
 ```
 
 With a proper `@type`, strict mode passes without issues:
@@ -138,7 +148,7 @@ $result = $validator->validate([
     'name'     => 'PHP 101',
 ]);
 
-// $result === true  (no errors)
+// $result->isValid() === true  (no errors)
 ```
 
 ## Bundled vocabulary versions
@@ -178,9 +188,9 @@ The following JSON-LD uses a fictional `DummyOrganization` type that does not ex
 
 ```php
 $validator = new \Nadar\Schema\JsonLdValidator();
-$validator->validate($jsonString);
+$result = $validator->validate($jsonString);
 
-print_r($validator->getErrors());
+print_r($result->getErrors());
 // Array
 // (
 //     [0] => $.provider: Unknown schema.org @type 'DummyOrganization'.

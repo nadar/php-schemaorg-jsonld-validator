@@ -6,10 +6,11 @@ namespace Nadar\Tests\Schema;
 
 use Nadar\Schema\Vocabulary;
 use Nadar\Schema\JsonLdValidator;
+use Nadar\Schema\ValidationResult;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Unit tests for {@see JsonLdValidator}.
+ * Unit tests for {@see JsonLdValidator} and {@see ValidationResult}.
  *
  * All tests use the bundled schema.org vocabulary (no network required).
  * One integration test verifies the bundled vocabulary loads and validates
@@ -30,18 +31,61 @@ final class JsonLdValidatorTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // ValidationResult basics
+    // -------------------------------------------------------------------------
+
+    public function testValidationResultIsValidWhenNoErrors(): void
+    {
+        $result = new ValidationResult();
+        self::assertTrue($result->isValid());
+        self::assertFalse($result->hasErrors());
+        self::assertSame([], $result->getErrors());
+        self::assertSame('', $result->getErrorsAsString());
+        self::assertSame('Valid.', (string) $result);
+        self::assertNull($result->getJsonLd());
+    }
+
+    public function testValidationResultWithErrors(): void
+    {
+        $result = new ValidationResult(null, ['Error one.', 'Error two.']);
+        self::assertFalse($result->isValid());
+        self::assertTrue($result->hasErrors());
+        self::assertSame(['Error one.', 'Error two.'], $result->getErrors());
+        self::assertSame("Error one.\nError two.", $result->getErrorsAsString());
+        self::assertSame("Error one.\nError two.", (string) $result);
+    }
+
+    public function testValidationResultCustomSeparator(): void
+    {
+        $result = new ValidationResult(null, ['A', 'B', 'C']);
+        self::assertSame('A|B|C', $result->getErrorsAsString('|'));
+    }
+
+    public function testValidationResultStoresJsonLd(): void
+    {
+        $data = ['@type' => 'Course', 'name' => 'Test'];
+        $result = new ValidationResult($data);
+        self::assertSame($data, $result->getJsonLd());
+    }
+
+    // -------------------------------------------------------------------------
     // Basic API tests
     // -------------------------------------------------------------------------
 
-    public function testInitialStateHasNoErrors(): void
+    public function testValidateReturnsValidationResult(): void
     {
         $validator = new JsonLdValidator();
-        self::assertFalse($validator->hasErrors());
-        self::assertSame([], $validator->getErrors());
-        self::assertSame('', $validator->getErrorsAsString());
+        $result = $validator->validate([
+            '@context' => 'https://schema.org',
+            '@type'    => 'Course',
+            'name'     => 'Test',
+        ]);
+
+        self::assertInstanceOf(ValidationResult::class, $result);
+        self::assertTrue($result->isValid());
     }
 
-    public function testValidJsonLdReturnsTrue(): void
+    public function testValidJsonLdReturnsValidResult(): void
     {
         $validator = $this->makeValidator();
 
@@ -52,30 +96,72 @@ final class JsonLdValidatorTest extends TestCase
             'url'      => 'https://example.com/php-course',
         ]);
 
-        self::assertTrue($result);
-        self::assertFalse($validator->hasErrors());
-        self::assertSame([], $validator->getErrors());
+        self::assertTrue($result->isValid());
+        self::assertFalse($result->hasErrors());
+        self::assertSame([], $result->getErrors());
     }
 
-    public function testInvalidJsonStringReturnsFalse(): void
+    public function testInvalidJsonStringReturnsInvalidResult(): void
     {
         $validator = $this->makeValidator();
 
         $result = $validator->validate('{not valid json}');
 
-        self::assertFalse($result);
-        self::assertTrue($validator->hasErrors());
+        self::assertFalse($result->isValid());
+        self::assertTrue($result->hasErrors());
     }
 
-    public function testNonObjectRootReturnsFalse(): void
+    public function testNonObjectRootReturnsError(): void
     {
         $validator = $this->makeValidator();
 
         // A JSON string (not an object) decoded will be a non-array.
         $result = $validator->validate('"just a string"');
 
-        self::assertFalse($result);
-        self::assertStringContainsString('Root must be a JSON object', $validator->getErrorsAsString());
+        self::assertFalse($result->isValid());
+        self::assertStringContainsString('Root must be a JSON object', $result->getErrorsAsString());
+    }
+
+    // -------------------------------------------------------------------------
+    // Multiple independent validations (no shared mutable state)
+    // -------------------------------------------------------------------------
+
+    public function testMultipleValidationsAreIndependent(): void
+    {
+        $validator = $this->makeValidator();
+
+        // First validation: invalid document
+        $resultA = $validator->validate([
+            '@context'  => 'https://schema.org',
+            '@type'     => 'Course',
+            'badProp1'  => 'x',
+        ]);
+
+        // Second validation: valid document
+        $resultB = $validator->validate([
+            '@context' => 'https://schema.org',
+            '@type'    => 'Course',
+            'name'     => 'PHP 101',
+        ]);
+
+        // Third validation: different invalid document
+        $resultC = $validator->validate([
+            '@context' => 'https://schema.org',
+            '@type'    => 'DummyOrganization',
+            'name'     => 'Test',
+        ]);
+
+        // Each result is independent.
+        self::assertFalse($resultA->isValid());
+        self::assertStringContainsString('badProp1', $resultA->getErrorsAsString());
+
+        self::assertTrue($resultB->isValid());
+        self::assertSame([], $resultB->getErrors());
+
+        self::assertFalse($resultC->isValid());
+        self::assertStringContainsString('DummyOrganization', $resultC->getErrorsAsString());
+        // resultC must NOT contain errors from resultA
+        self::assertStringNotContainsString('badProp1', $resultC->getErrorsAsString());
     }
 
     // -------------------------------------------------------------------------
@@ -92,8 +178,8 @@ final class JsonLdValidatorTest extends TestCase
             'name'     => 'Test',
         ]);
 
-        self::assertFalse($result);
-        $errors = $validator->getErrors();
+        self::assertFalse($result->isValid());
+        $errors = $result->getErrors();
         self::assertNotEmpty($errors);
         self::assertStringContainsString('DummyOrganization', implode(' ', $errors));
     }
@@ -112,8 +198,8 @@ final class JsonLdValidatorTest extends TestCase
             'nonExistent' => 'value',
         ]);
 
-        self::assertFalse($result);
-        self::assertStringContainsString('nonExistent', $validator->getErrorsAsString());
+        self::assertFalse($result->isValid());
+        self::assertStringContainsString('nonExistent', $result->getErrorsAsString());
     }
 
     // -------------------------------------------------------------------------
@@ -131,8 +217,8 @@ final class JsonLdValidatorTest extends TestCase
             'courseCode' => 'XYZ-101',
         ]);
 
-        self::assertFalse($result);
-        self::assertStringContainsString('courseCode', $validator->getErrorsAsString());
+        self::assertFalse($result->isValid());
+        self::assertStringContainsString('courseCode', $result->getErrorsAsString());
     }
 
     // -------------------------------------------------------------------------
@@ -143,7 +229,7 @@ final class JsonLdValidatorTest extends TestCase
     {
         $validator = $this->makeValidator();
 
-        // 'name' and 'description' are defined on Thing; Course → CreativeWork → Thing.
+        // 'name' and 'description' are defined on Thing; Course -> CreativeWork -> Thing.
         $result = $validator->validate([
             '@context'    => 'https://schema.org',
             '@type'       => 'Course',
@@ -151,7 +237,7 @@ final class JsonLdValidatorTest extends TestCase
             'description' => 'Some description',
         ]);
 
-        self::assertTrue($result);
+        self::assertTrue($result->isValid());
     }
 
     // -------------------------------------------------------------------------
@@ -167,13 +253,13 @@ final class JsonLdValidatorTest extends TestCase
             '@type'    => 'Course',
             'name'     => 'A course',
             'provider' => [
-                '@type'      => 'DummyOrganization',  // unknown type → error
+                '@type'      => 'DummyOrganization',  // unknown type -> error
                 'name'       => 'Provider Name',
             ],
         ]);
 
-        self::assertFalse($result);
-        $errors = $validator->getErrors();
+        self::assertFalse($result->isValid());
+        $errors = $result->getErrors();
         self::assertNotEmpty($errors);
         $errorString = implode(' ', $errors);
         self::assertStringContainsString('DummyOrganization', $errorString);
@@ -193,7 +279,7 @@ final class JsonLdValidatorTest extends TestCase
             ],
         ]);
 
-        self::assertTrue($result);
+        self::assertTrue($result->isValid());
     }
 
     // -------------------------------------------------------------------------
@@ -219,7 +305,7 @@ final class JsonLdValidatorTest extends TestCase
             ],
         ]);
 
-        self::assertTrue($result);
+        self::assertTrue($result->isValid());
     }
 
     public function testGraphWithErrorsIsReported(): void
@@ -236,8 +322,8 @@ final class JsonLdValidatorTest extends TestCase
             ],
         ]);
 
-        self::assertFalse($result);
-        self::assertStringContainsString('nonExistent', $validator->getErrorsAsString());
+        self::assertFalse($result->isValid());
+        self::assertStringContainsString('nonExistent', $result->getErrorsAsString());
     }
 
     // -------------------------------------------------------------------------
@@ -253,8 +339,8 @@ final class JsonLdValidatorTest extends TestCase
             'name'     => 'No type here',
         ]);
 
-        self::assertFalse($result);
-        self::assertStringContainsString('Missing @type', $validator->getErrorsAsString());
+        self::assertFalse($result->isValid());
+        self::assertStringContainsString('Missing @type', $result->getErrorsAsString());
     }
 
     public function testNonStrictModeAllowsMissingType(): void
@@ -268,7 +354,7 @@ final class JsonLdValidatorTest extends TestCase
 
         // 'name' has no domain restriction violation since types === [].
         // The only check is unknown property, and 'name' is known.
-        self::assertTrue($result);
+        self::assertTrue($result->isValid());
     }
 
     // -------------------------------------------------------------------------
@@ -279,14 +365,14 @@ final class JsonLdValidatorTest extends TestCase
     {
         $validator = $this->makeValidator();
 
-        $validator->validate([
+        $result = $validator->validate([
             '@context'  => 'https://schema.org',
             '@type'     => 'Course',
             'badProp1'  => 'x',
             'badProp2'  => 'y',
         ]);
 
-        $pipe = $validator->getErrorsAsString('|');
+        $pipe = $result->getErrorsAsString('|');
         self::assertStringContainsString('|', $pipe);
         self::assertStringContainsString('badProp1', $pipe);
         self::assertStringContainsString('badProp2', $pipe);
@@ -309,7 +395,7 @@ final class JsonLdValidatorTest extends TestCase
             'courseCode' => 'XYZ',
         ]);
 
-        self::assertTrue($result);
+        self::assertTrue($result->isValid());
     }
 
     // -------------------------------------------------------------------------
@@ -380,14 +466,14 @@ final class JsonLdValidatorTest extends TestCase
 
         $result = $validator->validate($jsonLd);
 
-        self::assertFalse($result);
-        self::assertTrue($validator->hasErrors());
+        self::assertFalse($result->isValid());
+        self::assertTrue($result->hasErrors());
 
-        $errors = $validator->getErrors();
+        $errors = $result->getErrors();
         self::assertIsArray($errors);
         self::assertNotEmpty($errors);
 
-        $errorStr = $validator->getErrorsAsString();
+        $errorStr = $result->getErrorsAsString();
         // All "Dummy*" types must be reported as unknown.
         self::assertStringContainsString('DummyOrganization', $errorStr);
         self::assertStringContainsString('DummyAudience', $errorStr);
@@ -449,7 +535,7 @@ final class JsonLdValidatorTest extends TestCase
 
         $result = $validator->validate($jsonLd);
 
-        self::assertTrue($result, implode("\n", $validator->getErrors()));
+        self::assertTrue($result->isValid(), $result->getErrorsAsString());
     }
 
     // -------------------------------------------------------------------------
@@ -465,7 +551,7 @@ final class JsonLdValidatorTest extends TestCase
 
         // Second call reuses the in-memory vocabulary without re-reading from disk.
         $result = $validator->validate(['@context' => 'https://schema.org', '@type' => 'Course', 'name' => 'B']);
-        self::assertTrue($result);
+        self::assertTrue($result->isValid());
     }
 
     public function testVocabularyFilePaths(): void
@@ -476,5 +562,78 @@ final class JsonLdValidatorTest extends TestCase
                 "Bundled vocabulary file for {$vocab->name} is missing."
             );
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // ValidationResult __toString
+    // -------------------------------------------------------------------------
+
+    public function testValidationResultToStringValid(): void
+    {
+        $validator = $this->makeValidator();
+
+        $result = $validator->validate([
+            '@context' => 'https://schema.org',
+            '@type'    => 'Course',
+            'name'     => 'PHP 101',
+        ]);
+
+        self::assertSame('Valid.', (string) $result);
+    }
+
+    public function testValidationResultToStringInvalid(): void
+    {
+        $validator = $this->makeValidator();
+
+        $result = $validator->validate([
+            '@context'  => 'https://schema.org',
+            '@type'     => 'Course',
+            'badProp'   => 'x',
+        ]);
+
+        $str = (string) $result;
+        self::assertStringContainsString('badProp', $str);
+    }
+
+    // -------------------------------------------------------------------------
+    // getJsonLd()
+    // -------------------------------------------------------------------------
+
+    public function testGetJsonLdReturnsDecodedArrayFromJsonString(): void
+    {
+        $validator = $this->makeValidator();
+
+        $json = '{"@context":"https://schema.org","@type":"Course","name":"PHP 101"}';
+        $result = $validator->validate($json);
+
+        self::assertTrue($result->isValid());
+        $data = $result->getJsonLd();
+        self::assertIsArray($data);
+        self::assertSame('Course', $data['@type']);
+        self::assertSame('PHP 101', $data['name']);
+    }
+
+    public function testGetJsonLdReturnsSameArrayWhenArrayPassed(): void
+    {
+        $validator = $this->makeValidator();
+
+        $input = [
+            '@context' => 'https://schema.org',
+            '@type'    => 'Course',
+            'name'     => 'A course',
+        ];
+        $result = $validator->validate($input);
+
+        self::assertSame($input, $result->getJsonLd());
+    }
+
+    public function testGetJsonLdReturnsNullForInvalidJson(): void
+    {
+        $validator = $this->makeValidator();
+
+        $result = $validator->validate('"just a string"');
+
+        self::assertFalse($result->isValid());
+        self::assertNull($result->getJsonLd());
     }
 }
