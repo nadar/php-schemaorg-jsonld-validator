@@ -12,7 +12,7 @@
     },
     "autoload": {
         "psr-4": {
-            "Nadar\\Schema\\": "src/Schema/"
+            "Nadar\\Schema\\": "src"
         }
     },
     "autoload-dev": {

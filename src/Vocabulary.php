@@ -33,6 +33,6 @@ enum Vocabulary: string
      */
     public function filePath(): string
     {
-        return dirname(__DIR__) . '/vocabulary/' . $this->value . '.jsonld';
+        return __DIR__ . '/vocabulary/' . $this->value . '.jsonld';
     }
 }
