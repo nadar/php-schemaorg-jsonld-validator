@@ -25,9 +25,9 @@ final class JsonLdValidatorTest extends TestCase
     /**
      * Creates a validator backed by the bundled vocabulary.
      */
-    private function makeValidator(bool $strictRequireType = false): JsonLdValidator
+    private function makeValidator(): JsonLdValidator
     {
-        return new JsonLdValidator(strictRequireType: $strictRequireType);
+        return new JsonLdValidator();
     }
 
     // -------------------------------------------------------------------------
@@ -332,12 +332,12 @@ final class JsonLdValidatorTest extends TestCase
 
     public function testStrictModeReportsMissingType(): void
     {
-        $validator = $this->makeValidator(strictRequireType: true);
+        $validator = $this->makeValidator();
 
         $result = $validator->validate([
             '@context' => 'https://schema.org',
             'name'     => 'No type here',
-        ]);
+        ], strictRequireType: true);
 
         self::assertFalse($result->isValid());
         self::assertStringContainsString('Missing @type', $result->getErrorsAsString());
@@ -345,12 +345,12 @@ final class JsonLdValidatorTest extends TestCase
 
     public function testNonStrictModeAllowsMissingType(): void
     {
-        $validator = $this->makeValidator(strictRequireType: false);
+        $validator = $this->makeValidator();
 
         $result = $validator->validate([
             '@context' => 'https://schema.org',
             'name'     => 'No type here',
-        ]);
+        ], strictRequireType: false);
 
         // 'name' has no domain restriction violation since types === [].
         // The only check is unknown property, and 'name' is known.

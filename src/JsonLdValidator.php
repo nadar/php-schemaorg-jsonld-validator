@@ -21,8 +21,9 @@ use Throwable;
  * Unknown `@type` values are also reported as errors.
  *
  * Each call to {@see validate()} returns an immutable {@see ValidationResult}
- * object, so multiple documents can be validated independently without any
- * shared mutable state.
+ * object. A fresh {@see ValidationEngine} is created for every call, so
+ * multiple documents can be validated independently without any shared mutable
+ * state.
  *
  * Usage:
  * ```php
@@ -49,27 +50,6 @@ final class JsonLdValidator
      */
     public readonly Vocabulary $vocabulary;
 
-    /**
-     * When `true`, every JSON-LD node that is missing a `@type` key is treated
-     * as a validation error.
-     *
-     * **Default (`false`)** — nodes without `@type` are silently accepted.
-     * Properties on such nodes are still checked against the full list of known
-     * schema.org properties, but no domain check is performed (because there is
-     * no type to check against). This is the permissive default that matches
-     * how most JSON-LD processors behave: `@type` is optional.
-     *
-     * **Strict (`true`)** — every node must declare a `@type`. Enable this
-     * when you want to guarantee that every entity in your document is
-     * explicitly typed, which is a requirement for many SEO and rich-snippet
-     * use cases. A missing `@type` produces an error message of the form:
-     * `"$: Missing @type."`.
-     */
-    private readonly bool $strictRequireType;
-
-    /** @var list<string> Collected validation error messages. */
-    private array $errors = [];
-
     /** Whether the vocabulary has already been parsed into memory. */
     private bool $loaded = false;
 
@@ -94,24 +74,13 @@ final class JsonLdValidator
     private array $propertyDomains = [];
 
     /**
-     * Memoisation cache for type-ancestor closures.
-     *
-     * @var array<string, list<string>>
-     */
-    private array $ancestorsCache = [];
-
-    /**
-     * @param Vocabulary $vocabulary      Bundled schema.org vocabulary version to use for
-     *                                    validation. Defaults to the latest bundled version.
-     * @param bool       $strictRequireType When `true`, nodes missing `@type` are flagged as
-     *                                    errors. See the property docblock for full details.
+     * @param Vocabulary $vocabulary Bundled schema.org vocabulary version to use for
+     *                               validation. Defaults to the latest bundled version.
      */
     public function __construct(
         Vocabulary $vocabulary = Vocabulary::V20260226,
-        bool $strictRequireType = false,
     ) {
         $this->vocabulary = $vocabulary;
-        $this->strictRequireType = $strictRequireType;
     }
 
     /**
@@ -119,48 +88,50 @@ final class JsonLdValidator
      *
      * Accepts either a decoded PHP array or a raw JSON string.
      * Returns an immutable {@see ValidationResult} that holds all errors (if
-     * any). Each call produces a fresh result object, so multiple documents
-     * can be validated independently.
+     * any). A fresh {@see ValidationEngine} is created for every call, so
+     * no mutable state is shared between invocations.
      *
      * @param string|array<mixed> $jsonLd Decoded JSON-LD array or raw JSON string.
+     * @param bool $strictRequireType When `true`, every JSON-LD node that is missing
+     *                                a `@type` key is treated as a validation error.
+     *                                **Default (`false`)** — nodes without `@type` are
+     *                                silently accepted. **Strict (`true`)** — every node
+     *                                must declare a `@type`, which is a requirement for
+     *                                many SEO and rich-snippet use cases.
      */
-    public function validate(string|array $jsonLd): ValidationResult
+    public function validate(string|array $jsonLd, bool $strictRequireType = false): ValidationResult
     {
-        $this->errors = [];
+        // Decode JSON string if needed — early return on syntax errors.
+        if (is_string($jsonLd)) {
+            if (function_exists('json_validate') && !json_validate($jsonLd)) {
+                return new ValidationResult(null, ['Invalid JSON syntax.']);
+            }
 
-        $data = is_string($jsonLd) ? $this->decodeJson($jsonLd) : $jsonLd;
-        if (!is_array($data)) {
-            $this->errors[] = 'Root must be a JSON object.';
-            return new ValidationResult(null, $this->errors);
+            try {
+                $jsonLd = json_decode($jsonLd, true, 512, JSON_THROW_ON_ERROR);
+            } catch (Throwable $e) {
+                return new ValidationResult(null, ['Invalid JSON: ' . $e->getMessage()]);
+            }
+        }
+
+        if (!is_array($jsonLd)) {
+            return new ValidationResult(null, ['Root must be a JSON object.']);
         }
 
         $this->ensureVocabularyLoaded();
-        $this->validateNode($data, '$');
 
-        return new ValidationResult($data, $this->errors);
+        return (new ValidationEngine(
+            knownTypes: $this->knownTypes,
+            typeParents: $this->typeParents,
+            knownProperties: $this->knownProperties,
+            propertyDomains: $this->propertyDomains,
+            strictRequireType: $strictRequireType,
+        ))->run($jsonLd);
     }
 
     // -------------------------------------------------------------------------
-    // Internal helpers
+    // Vocabulary loading (parsed once, then immutable)
     // -------------------------------------------------------------------------
-
-    /**
-     * Decodes a raw JSON string, populating `$this->errors` on failure.
-     */
-    private function decodeJson(string $json): mixed
-    {
-        if (function_exists('json_validate') && !json_validate($json)) {
-            $this->errors[] = 'Invalid JSON syntax.';
-            return null;
-        }
-
-        try {
-            return json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-        } catch (Throwable $e) {
-            $this->errors[] = 'Invalid JSON: ' . $e->getMessage();
-            return null;
-        }
-    }
 
     /**
      * Loads and parses the schema.org vocabulary unless already done.
@@ -195,18 +166,18 @@ final class JsonLdValidator
             }
 
             if ($type === 'rdfs:Class') {
-                $t = $this->normalize($id);
+                $t = ValidationEngine::normalize($id);
                 $this->knownTypes[$t] = true;
                 $this->typeParents[$t] = $this->extractIdList($entry['rdfs:subClassOf'] ?? null);
                 continue;
             }
 
             if ($type === 'rdf:Property') {
-                $p = $this->normalize($id);
+                $p = ValidationEngine::normalize($id);
                 $this->knownProperties[$p] = true;
 
                 foreach ($this->extractIdList($entry['schema:domainIncludes'] ?? null) as $domainId) {
-                    $this->propertyDomains[$p][$this->normalize($domainId)] = true;
+                    $this->propertyDomains[$p][ValidationEngine::normalize($domainId)] = true;
                 }
             }
         }
@@ -231,181 +202,6 @@ final class JsonLdValidator
         }
 
         return $raw;
-    }
-
-    /**
-     * Recursively validates a node, dispatching to {@see validateObject()} for
-     * associative arrays and iterating list arrays element by element.
-     */
-    private function validateNode(mixed $node, string $path): void
-    {
-        if (!is_array($node)) {
-            return;
-        }
-
-        if ($this->isAssocArray($node)) {
-            $this->validateObject($node, $path);
-            return;
-        }
-
-        foreach ($node as $i => $child) {
-            $this->validateNode($child, $path . '[' . $i . ']');
-        }
-    }
-
-    /**
-     * Validates a single JSON-LD object node.
-     *
-     * Checks:
-     *  - Recursively validates any embedded `@graph`.
-     *  - Reports unknown `@type` values.
-     *  - Reports unknown properties.
-     *  - Reports properties whose domain does not include any of the node's types.
-     *
-     * @param array<mixed> $obj  The decoded JSON-LD object.
-     * @param string       $path Human-readable path expression for error messages.
-     */
-    private function validateObject(array $obj, string $path): void
-    {
-        if (isset($obj['@graph']) && is_array($obj['@graph'])) {
-            $this->validateNode($obj['@graph'], $path . '.@graph');
-        }
-
-        $types = $this->extractTypes($obj, $path);
-
-        if ($this->strictRequireType && $types === []) {
-            $this->errors[] = $path . ': Missing @type.';
-        }
-
-        // Compute ancestor closure once per type so domain lookups are O(1).
-        $typeClosures = [];
-        foreach ($types as $t) {
-            $typeClosures[$t] = $this->typeWithAncestors($t);
-        }
-
-        foreach ($obj as $key => $value) {
-            $key = (string) $key;
-
-            // JSON-LD keywords (@context, @type, @id, …) are not validated.
-            if (str_starts_with($key, '@')) {
-                continue;
-            }
-
-            if (!isset($this->knownProperties[$key])) {
-                $this->errors[] = sprintf(
-                    "%s: Unknown schema.org property '%s'.",
-                    $path,
-                    $key,
-                );
-            } elseif ($types !== [] && !$this->propertyAllowedForAnyType($key, $typeClosures)) {
-                $this->errors[] = sprintf(
-                    "%s: Property '%s' is not allowed for @type %s.",
-                    $path,
-                    $key,
-                    implode(', ', $types),
-                );
-            }
-
-            $this->validateNode($value, $path . '.' . $key);
-        }
-    }
-
-    /**
-     * Extracts the normalised type names from a JSON-LD node's `@type` field.
-     *
-     * Unknown type names are added to `$this->errors` as a side-effect.
-     *
-     * @param array<mixed> $obj  The JSON-LD node.
-     * @param string       $path Path for error messages.
-     *
-     * @return list<string> Unique, normalised type names.
-     */
-    private function extractTypes(array $obj, string $path): array
-    {
-        $raw = $obj['@type'] ?? null;
-        $types = [];
-
-        if (is_string($raw) && $raw !== '') {
-            $types[] = $this->normalize($raw);
-        } elseif (is_array($raw)) {
-            foreach ($raw as $x) {
-                if (is_string($x) && $x !== '') {
-                    $types[] = $this->normalize($x);
-                }
-            }
-        }
-
-        $types = array_values(array_unique($types));
-
-        foreach ($types as $typeName) {
-            if (!isset($this->knownTypes[$typeName])) {
-                $this->errors[] = sprintf(
-                    "%s: Unknown schema.org @type '%s'.",
-                    $path,
-                    $typeName,
-                );
-            }
-        }
-
-        return $types;
-    }
-
-    /**
-     * Returns `true` when `$property` is valid for at least one of the given types,
-     * taking the full type-inheritance hierarchy into account.
-     *
-     * @param array<string, list<string>> $typeClosures Map of type => ancestors (incl. itself).
-     */
-    private function propertyAllowedForAnyType(string $property, array $typeClosures): bool
-    {
-        $domains = $this->propertyDomains[$property] ?? null;
-        if (!$domains) {
-            return false;
-        }
-
-        foreach ($typeClosures as $ancestors) {
-            foreach ($ancestors as $ancestor) {
-                if (isset($domains[$ancestor])) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Returns `$type` together with all of its ancestor types (breadth-first).
-     *
-     * Results are memoised in {@see $ancestorsCache}.
-     *
-     * @return list<string>
-     */
-    private function typeWithAncestors(string $type): array
-    {
-        if (isset($this->ancestorsCache[$type])) {
-            return $this->ancestorsCache[$type];
-        }
-
-        $seen = [];
-        $stack = [$type];
-
-        while ($stack !== []) {
-            $t = array_pop($stack);
-            if (isset($seen[$t])) {
-                continue;
-            }
-            $seen[$t] = true;
-
-            foreach ($this->typeParents[$t] ?? [] as $parentId) {
-                $p = $this->normalize($parentId);
-                if (!isset($seen[$p])) {
-                    $stack[] = $p;
-                }
-            }
-        }
-
-        return $this->ancestorsCache[$type] = array_keys($seen);
     }
 
     /**
@@ -437,26 +233,4 @@ final class JsonLdValidator
         }
         return $out;
     }
-
-    /**
-     * Strips well-known schema.org URI prefixes from a type or property identifier,
-     * returning just the local name (e.g. `"schema:Person"` → `"Person"`).
-     */
-    private function normalize(string $raw): string
-    {
-        $raw = preg_replace('~^schema:~', '', $raw) ?? $raw;
-        $raw = preg_replace('~^https?://schema\.org/~', '', $raw) ?? $raw;
-        return ltrim($raw, '#');
-    }
-
-    /**
-     * Returns `true` when `$arr` is a non-empty associative (map-like) array.
-     *
-     * @param array<mixed> $arr
-     */
-    private function isAssocArray(array $arr): bool
-    {
-        return $arr !== [] && array_keys($arr) !== range(0, count($arr) - 1);
-    }
-
 }

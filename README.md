@@ -75,16 +75,20 @@ $resultB = $validator->validate($documentB);
 
 ## API
 
-### `new JsonLdValidator(Vocabulary $vocabulary = Vocabulary::V20260226, bool $strictRequireType = false)`
+### `new JsonLdValidator(Vocabulary $vocabulary = Vocabulary::V20260226)`
 
 | Parameter            | Default                    | Description |
-|----------------------|----------------------------|-------------|
+|----------------------|----------------------------|-----------|
 | `$vocabulary`        | `Vocabulary::V20260226`    | Bundled schema.org vocabulary version to use. |
-| `$strictRequireType` | `false`                    | When `true`, nodes without a `@type` are reported as errors. See [Strict type checking](#strict-type-checking) for details. |
 
-### `validate(string|array $jsonLd): ValidationResult`
+### `validate(string|array $jsonLd, bool $strictRequireType = false): ValidationResult`
 
 Validates the JSON-LD input and returns an immutable `ValidationResult`. Each call produces a fresh result object, so multiple documents can be validated independently without shared state.
+
+| Parameter            | Default | Description |
+|----------------------|---------|-----------|
+| `$jsonLd`            | —       | Decoded JSON-LD array or raw JSON string. |
+| `$strictRequireType` | `false` | When `true`, nodes without a `@type` are reported as errors. See [Strict type checking](#strict-type-checking) for details. |
 
 ### `ValidationResult`
 
@@ -99,20 +103,20 @@ Validates the JSON-LD input and returns an immutable `ValidationResult`. Each ca
 
 ## Strict type checking
 
-The `$strictRequireType` constructor flag controls how the validator handles JSON-LD nodes that are missing a `@type` key.
+The `$strictRequireType` parameter of `validate()` controls how the validator handles JSON-LD nodes that are missing a `@type` key.
 
 ### Default behaviour — `strictRequireType: false`
 
 By default, nodes without `@type` are **silently accepted**. Properties on such nodes are still checked against the list of known schema.org properties (unknown properties are still reported), but no domain check is performed because there is no type to check against.
 
 ```php
-$validator = new \Nadar\Schema\JsonLdValidator(); // strictRequireType defaults to false
+$validator = new \Nadar\Schema\JsonLdValidator();
 
 $result = $validator->validate([
     '@context' => 'https://schema.org',
     'name'     => 'No type declared',     // ✔ allowed — 'name' is a known property
     'fakeKey'  => 'value',                // ✗ reported — 'fakeKey' is not a schema.org property
-]);
+]); // strictRequireType defaults to false
 ```
 
 This permissive default is useful when you work with partial documents, embedded sub-graphs, or third-party data that does not always include explicit type declarations.
@@ -129,12 +133,12 @@ $.provider: Missing @type.
 Enable this mode when you want to guarantee that every entity is explicitly typed — a common requirement for rich-snippet and SEO structured data, where search engines rely on `@type` to understand what an entity represents.
 
 ```php
-$validator = new \Nadar\Schema\JsonLdValidator(strictRequireType: true);
+$validator = new \Nadar\Schema\JsonLdValidator();
 
 $result = $validator->validate([
     '@context' => 'https://schema.org',
     'name'     => 'Missing @type here',
-]);
+], strictRequireType: true);
 
 // $result->isValid() === false
 // $result->getErrors() === ['$: Missing @type.']
@@ -143,13 +147,13 @@ $result = $validator->validate([
 With a proper `@type`, strict mode passes without issues:
 
 ```php
-$validator = new \Nadar\Schema\JsonLdValidator(strictRequireType: true);
+$validator = new \Nadar\Schema\JsonLdValidator();
 
 $result = $validator->validate([
     '@context' => 'https://schema.org',
     '@type'    => 'Course',
     'name'     => 'PHP 101',
-]);
+], strictRequireType: true);
 
 // $result->isValid() === true  (no errors)
 ```
