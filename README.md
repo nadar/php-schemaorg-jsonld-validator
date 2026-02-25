@@ -1,4 +1,6 @@
-# php-schemaorg-jsonld-validator
+# Schema.org JSON-LD Validator for PHP
+
+[![Tests](https://github.com/nadar/php-schemaorg-jsonld-validator/actions/workflows/tests.yml/badge.svg)](https://github.com/nadar/php-schemaorg-jsonld-validator/actions/workflows/tests.yml)
 
 A PHP 8.4+ library that validates JSON-LD structured data against the official [schema.org](https://schema.org) vocabulary — mirroring what [validator.schema.org](https://validator.schema.org/) checks for.
 
